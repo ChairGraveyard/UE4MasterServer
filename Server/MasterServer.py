@@ -79,9 +79,9 @@ class Server(Model):
     client_address = CharField()
 
     # Generate a simple ID by adding IP and Port, just so we can update records that already exists easily enough.
-    def generate_id(ip, port):
+    def generate_id(self, port):
         exclude = set(string.digits)
-        id_string = ip + port
+        id_string = self + port
         id_string = ''.join(ch for ch in id_string if ch in exclude)
         return int(id_string)
 
@@ -120,7 +120,7 @@ class MyServer(http.server.BaseHTTPRequestHandler):
         return
 
     def get_formatted_ip(self):
-        return self.client_address[0] + ":" + str(self.client_address[1])
+        return f"{self.client_address[0]}:{str(self.client_address[1])}"
 
     def do_GET(self):
         self.send_response(200)
@@ -139,9 +139,11 @@ class MyServer(http.server.BaseHTTPRequestHandler):
 
     # Client has requested the server list, send this.
     def handle_send_serverlist(self):
-        main_thread.queue_log(type="Information",
-                              message="Sending serverlist to " + self.get_formatted_ip(),
-                              client=self.client_address)
+        main_thread.queue_log(
+            type="Information",
+            message=f"Sending serverlist to {self.get_formatted_ip()}",
+            client=self.client_address,
+        )
         self.wfile.write(main_thread.latest_serverlist)
 
     def do_PUT(self):
@@ -240,14 +242,13 @@ class MainThread():
         try:
             # Get dictionary of servers from database
             serverlist_dict = map(get_dictionary_from_model, Server.select())
-            for server in serverlist_dict:
-                # If server is active, we should add it.
-                if server[SERVER_ISACTIVE]:
-                    servers.append(server)
-
+            servers.extend(server for server in serverlist_dict if server[SERVER_ISACTIVE])
             # Compresses the serverlist for sending to clients.
             self.latest_serverlist = zlib.compress(json.dumps({"servers": servers}, cls=DatetimeEncoder).encode())
-            self.queue_log(type="Information", message="Generated server list for " + str(len(servers)) + " servers.")
+            self.queue_log(
+                type="Information",
+                message=f"Generated server list for {len(servers)} servers.",
+            )
         except peewee.OperationalError:
             self.queue_log(type="Information", message="No data to generate for servers.")
 
@@ -274,12 +275,13 @@ class MainThread():
                                   max_players=server[SERVER_MAXPLAYERS],
                                   current_players=server[SERVER_CURRENTPLAYERS]
                                   ).where(Server.id == Server.generate_id(server[SERVER_IP], server[SERVER_PORT])) \
-                        .execute()
+                            .execute()
 
-                self.queue_log(type="Information",
-                               message="Registered " + server[SERVER_NAME] + " on " + server[SERVER_IP] + ":" + server[
-                                   SERVER_PORT],
-                               client=server[SERVER_CLIENTADDR])
+                self.queue_log(
+                    type="Information",
+                    message=f"Registered {server[SERVER_NAME]} on {server[SERVER_IP]}:{server[SERVER_PORT]}",
+                    client=server[SERVER_CLIENTADDR],
+                )
 
                 registered_count += 1
                 self.server_registration_queue.remove(server)
@@ -297,9 +299,11 @@ class MainThread():
                 servers_unregistered += Server.update(is_active=False).where(
                     Server.id == Server.generate_id(server[SERVER_IP],
                                                     server[SERVER_PORT])).execute()
-                self.queue_log(type="Information",
-                               message="De-registered " + server[SERVER_NAME] + " on " + server[SERVER_IP] + ":" +
-                                       server[SERVER_PORT], client=server[SERVER_CLIENTADDR])
+                self.queue_log(
+                    type="Information",
+                    message=f"De-registered {server[SERVER_NAME]} on {server[SERVER_IP]}:{server[SERVER_PORT]}",
+                    client=server[SERVER_CLIENTADDR],
+                )
                 self.server_deregistration_queue.remove(server)
 
         if servers_unregistered > 0:
@@ -321,9 +325,11 @@ class MainThread():
                                                     current_players=server[SERVER_CURRENTPLAYERS]
                                                     ).where(
                     Server.id == Server.generate_id(server[SERVER_IP], server[SERVER_PORT])).execute()
-                self.queue_log(type="Information",
-                               message=server[SERVER_NAME] + " on " + server[SERVER_IP] + ":" +
-                                       server[SERVER_PORT] + " checked in", client=server[SERVER_CLIENTADDR])
+                self.queue_log(
+                    type="Information",
+                    message=f"{server[SERVER_NAME]} on {server[SERVER_IP]}:{server[SERVER_PORT]} checked in",
+                    client=server[SERVER_CLIENTADDR],
+                )
                 self.server_checkin_queue.remove(server)
 
         if (servers_checked_in > 0):
@@ -337,7 +343,10 @@ class MainThread():
             (Server.registration_time + CHECK_IN_FREQUENCY * MISSED_CHECKINS_BEFORE_INACTIVE < now) & (
                 Server.is_active == True)).execute()
         if expired_servers > 0:
-            self.queue_log(type="Information", message="Purged " + str(expired_servers) + " expired servers.")
+            self.queue_log(
+                type="Information",
+                message=f"Purged {str(expired_servers)} expired servers.",
+            )
             self.regenerate_serverlist = True
 
     # Process the log queue, and write to database.
